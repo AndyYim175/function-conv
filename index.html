@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expression → fraction converter</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.7.0/math.min.js"></script>
+    <style>
+        :root {
+            --bg-base: #c5e4f3;
+            --tile-a: #b0d6ea;
+            --tile-b: #d4ecf6;
+            --accent: #1a3656;
+            --accent-deep: #0e2640;
+            --accent-light: #2d5a85;
+            --text-primary: #0c1f33;
+            --text-muted: #3a6080;
+            --card-bg: rgba(255,255,255,0.82);
+            --card-border: rgba(255,255,255,0.4);
+            --input-bg: rgba(255,255,255,0.9);
+            --input-border: #a8c8de;
+            --input-focus: #1a3656;
+            --result-bg: rgba(255,255,255,0.92);
+            --credits-bg: rgba(14,38,64,0.92);
+            --credits-text: #b8d4ea;
+            --flash: #5eb8f0;
+            --error: #c0392b;
+        }
+
+        html.dark {
+            --bg-base: #0b1620;
+            --tile-a: #07111b;
+            --tile-b: #101e2c;
+            --accent: #5ea3d4;
+            --accent-deep: #3b7fb5;
+            --accent-light: #79bde0;
+            --text-primary: #d8e6f0;
+            --text-muted: #7a9db8;
+            --card-bg: rgba(16,28,44,0.85);
+            --card-border: rgba(40,65,95,0.5);
+            --input-bg: rgba(12,22,36,0.9);
+            --input-border: #1e3a55;
+            --input-focus: #5ea3d4;
+            --result-bg: rgba(12,22,36,0.9);
+            --credits-bg: rgba(6,14,24,0.95);
+            --credits-text: #6a9ab8;
+            --flash: #3b90cc;
+            --error: #e74c3c;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            font-family: 'Outfit', sans-serif;
+            color: var(--text-primary);
+            background: var(--bg-base);
+            overflow-x: hidden;
+        }
+
+        /* ── checkerboard ── */
+        .checkerboard-bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background-image: repeating-conic-gradient(
+                var(--tile-a) 0% 25%, var(--tile-b) 0% 50%
+            );
+            background-size: 48px 48px;
+            animation: drift 14s linear infinite;
+        }
+        @keyframes drift {
+            from { background-position: 0 0; }
+            to   { background-position: 48px 48px; }
+        }
+
+        /* ── main stage ── */
+        .stage {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 1.5rem;
+        }
+
+        /* ══════════ MENU ══════════ */
+        .menu-layer {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            min-height: 60vh;
+        }
+
+        .menu-left {
+            flex: 0 0 50%;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding-right: 2rem;
+        }
+
+        .menu-right {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-left: 1rem;
+            transition: transform 0.45s cubic-bezier(.55,0,1,.45), opacity 0.4s ease;
+        }
+
+        .menu-right.exit-left {
+            transform: translateX(-60vw);
+            opacity: 0;
+        }
+
+        /* ── buttons ── */
+        .menu-btn {
+            position: relative;
+            display: block;
+            width: 100%;
+            background: var(--accent);
+            border: none;
+            border-radius: 0 1rem 1rem 0;
+            padding: 1.3rem 2rem;
+            font-family: 'Outfit', sans-serif;
+            font-size: clamp(1.15rem, 2.5vw, 1.65rem);
+            font-weight: 700;
+            color: white;
+            text-align: left;
+            cursor: pointer;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+            transform: translateX(-110%);
+            opacity: 0;
+            transition: background 0.2s;
+        }
+
+        .menu-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(105deg, rgba(255,255,255,0.1) 0%, transparent 55%);
+            pointer-events: none;
+        }
+
+        /* flash overlay */
+        .menu-btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--flash);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* multi-flash: blinks 4 times over ~1s */
+        .menu-btn.multi-flash::after {
+            animation: multi-flash 0.5s ease-out forwards;
+        }
+
+        @keyframes multi-flash {
+            0%   { opacity: 0.75; }
+            12%  { opacity: 0; }
+            20%  { opacity: 0.65; }
+            32%  { opacity: 0; }
+            42%  { opacity: 0.55; }
+            54%  { opacity: 0; }
+            66%  { opacity: 0.45; }
+            78%  { opacity: 0; }
+            88%  { opacity: 0.35; }
+            100% { opacity: 0; }
+        }
+
+        .menu-btn .arrow {
+            display: inline-block;
+            margin-right: 0.6rem;
+            transition: transform 0.25s;
+        }
+
+        .menu-btn:hover .arrow,
+        .menu-btn:focus-visible .arrow {
+            transform: translateX(5px);
+        }
+
+        .menu-btn:hover, .menu-btn:focus-visible {
+            background: var(--accent-deep);
+        }
+
+        .menu-btn:active {
+            background: var(--accent-light);
+        }
+
+        /* slide-in entrance (staggered via JS) */
+        .menu-btn.enter {
+            animation: btn-enter 0.5s cubic-bezier(.22,1,.36,1) forwards;
+        }
+
+        @keyframes btn-enter {
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* slide-out exit (staggered via JS) */
+        .menu-btn.exit {
+            animation: btn-exit 0.38s cubic-bezier(.55,0,1,.45) forwards;
+        }
+
+        @keyframes btn-exit {
+            from { transform: translateX(0); opacity: 1; }
+            to   { transform: translateX(-110%); opacity: 0; }
+        }
+
+        /* chosen button delayed exit */
+        .menu-btn.chosen-exit {
+            animation: btn-exit 0.4s cubic-bezier(.55,0,1,.45) forwards;
+        }
+
+        /* ── typewriter ── */
+        .typewriter-wrap {
+            font-family: 'DM Mono', monospace;
+            font-size: clamp(1.2rem, 3.2vw, 2.3rem);
+            font-weight: 500;
+            color: var(--text-primary);
+            line-height: 1.4;
+            word-break: break-word;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .typewriter-wrap .cursor {
+            display: inline-block;
+            width: 3px;
+            height: 1.1em;
+            background: var(--accent);
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: blink 0.8s step-end infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* ══════════ PAGE CONTENT ══════════ */
+        .page-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 2rem 1.5rem;
+            pointer-events: none;
+            overflow-y: auto;
+        }
+
+        .page-layer.active {
+            pointer-events: auto;
+        }
+
+        .page-inner {
+            width: 100%;
+            max-width: 780px;
+            opacity: 0;
+            transform: translateX(60px);
+        }
+
+        .page-layer.active .page-inner {
+            animation: page-in 0.45s cubic-bezier(.22,1,.36,1) forwards;
+            animation-delay: 0.1s;
+        }
+
+        .page-layer.exiting .page-inner {
+            animation: page-out 0.4s cubic-bezier(.55,0,1,.45) forwards;
+        }
+
+        @keyframes page-in {
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes page-out {
+            from { opacity: 1; transform: translateX(0); }
+            to   { opacity: 0; transform: translateX(80vw); }
+        }
+
+        /* ── cards ── */
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--card-border);
+            border-radius: 1.3rem;
+            padding: 2rem;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+            transition: background 0.3s, border-color 0.3s;
+        }
+
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--card-border);
+            color: var(--accent);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 1.05rem;
+            padding: 0.6rem 1.3rem;
+            border-radius: 0.7rem;
+            cursor: pointer;
+            margin-bottom: 1.2rem;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .back-btn:hover { transform: translateX(-4px); }
+        .back-btn:active { transform: translateX(-2px) scale(0.97); }
+
+        .back-arrow {
+            display: inline-block;
+            transition: transform 0.2s;
+        }
+        .back-btn:hover .back-arrow { transform: translateX(-3px); }
+
+        /* ── convert ── */
+        .input-group {
+            margin-bottom: 1.1rem;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+        }
+
+        .input-group label {
+            font-weight: 700;
+            color: var(--accent);
+            width: 110px;
+            font-size: 1.05rem;
+            font-family: 'DM Mono', monospace;
+        }
+
+        .input-group input {
+            flex: 1 1 220px;
+            padding: 0.8rem 1rem;
+            font-size: 16px;
+            font-family: 'DM Mono', monospace;
+            border: 2px solid var(--input-border);
+            border-radius: 0.7rem;
+            outline: none;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: var(--input-focus);
+            box-shadow: 0 0 0 3px rgba(26,54,86,0.12);
+        }
+
+        .primary-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.85rem 1.8rem;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-radius: 0.7rem;
+            cursor: pointer;
+            margin-top: 0.3rem;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+            transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+        }
+
+        .primary-btn:hover {
+            background: var(--accent-deep);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+        }
+
+        .primary-btn:active { transform: translateY(1px); }
+
+        #convert-result {
+            margin-top: 1.4rem;
+            padding: 1.2rem 1.3rem;
+            background: var(--result-bg);
+            border-radius: 0.8rem;
+            border-left: 5px solid var(--accent);
+            font-family: 'DM Mono', monospace;
+            font-size: 1.05rem;
+            word-break: break-all;
+            white-space: pre-wrap;
+            color: var(--text-muted);
+            line-height: 1.7;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        #convert-result .decimal-line {
+            display: block;
+            margin-top: 0.5rem;
+            opacity: 0.7;
+            font-size: 0.95em;
+        }
+
+        .error { color: var(--error) !important; font-weight: 600; }
+
+        /* ── explanation ── */
+        .explanation-box h2 {
+            font-size: 1.35rem;
+            margin-bottom: 0.9rem;
+            color: var(--accent);
+        }
+
+        .explanation-box {
+            font-size: 1.02rem;
+            line-height: 1.7;
+        }
+
+        .explanation-box ul { margin-left: 1.4rem; margin-top: 0.4rem; margin-bottom: 0.4rem; }
+        .explanation-box li { margin-bottom: 0.25rem; }
+
+        .explanation-box code {
+            font-family: 'DM Mono', monospace;
+            background: rgba(0,0,0,0.06);
+            padding: 0.12rem 0.4rem;
+            border-radius: 0.25rem;
+            font-size: 0.93em;
+        }
+
+        html.dark .explanation-box code {
+            background: rgba(255,255,255,0.07);
+        }
+
+        .explanation-box hr {
+            margin: 1.2rem 0;
+            border: none;
+            border-top: 1px dashed var(--input-border);
+        }
+
+        /* ── credits ── */
+        .credits-box {
+            background: var(--credits-bg);
+            color: var(--credits-text);
+            padding: 2rem;
+            border-radius: 1.2rem;
+            white-space: pre-wrap;
+            font-family: 'DM Mono', monospace;
+            font-size: 0.92rem;
+            line-height: 1.65;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+        }
+
+        /* ── mobile ── */
+        @media (max-width: 700px) {
+            .stage { padding: 1rem 0; }
+
+            .menu-layer {
+                flex-direction: column;
+                min-height: auto;
+                gap: 2rem;
+                padding: 2rem 0;
+            }
+
+            .menu-left {
+                flex: none;
+                width: 75%;
+                padding-right: 0;
+                align-self: flex-start;
+            }
+
+            .menu-right {
+                padding-left: 1rem;
+                padding-right: 1rem;
+                justify-content: flex-start;
+            }
+
+            .typewriter-wrap {
+                font-size: clamp(1.05rem, 5vw, 1.5rem);
+            }
+
+            .menu-btn {
+                font-size: 1.15rem;
+                padding: 1.05rem 1.5rem;
+            }
+
+            .page-layer { padding: 1.2rem 0.8rem; }
+
+            .card {
+                padding: 1.4rem 1.1rem;
+                border-radius: 1rem;
+            }
+
+            .input-group label {
+                width: 100%;
+                font-size: 0.95rem;
+            }
+
+            .primary-btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            .credits-box {
+                font-size: 0.78rem;
+                padding: 1.3rem;
+                overflow-x: auto;
+            }
+
+            #convert-result {
+                font-size: 0.92rem;
+                padding: 1rem;
+            }
+        }
+
+        @media (max-width: 400px) {
+            .menu-left { width: 80%; }
+            .menu-btn { font-size: 1.05rem; padding: 0.9rem 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="checkerboard-bg"></div>
+
+<div class="stage">
+    <!-- ══ MENU ══ -->
+    <div class="menu-layer" id="menu-layer">
+        <div class="menu-left" id="menu-left">
+            <button class="menu-btn" onclick="handleMenuClick(this, 'convert')">
+                <span class="arrow">▸</span> convert
+            </button>
+            <button class="menu-btn" onclick="handleMenuClick(this, 'explanation')">
+                <span class="arrow">▸</span> explanation
+            </button>
+            <button class="menu-btn" onclick="handleMenuClick(this, 'credits')">
+                <span class="arrow">▸</span> credits
+            </button>
+        </div>
+        <div class="menu-right" id="menu-right">
+            <div class="typewriter-wrap">
+                <span id="typewriter-text"></span><span class="cursor"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ PAGE LAYERS ══ -->
+    <div class="page-layer" id="convert-layer">
+        <div class="page-inner">
+            <button class="back-btn" onclick="handleBack()"><span class="back-arrow">←</span> menu</button>
+            <div class="card">
+                <div class="input-group">
+                    <label>f(x):</label>
+                    <input type="text" id="convert-expr" value="x^2" placeholder="e.g: x^2 + 3^x">
+                </div>
+                <div class="input-group">
+                    <label>output base:</label>
+                    <input type="number" id="convert-B" value="100" step="1">
+                </div>
+                <button class="primary-btn" onclick="compute()">compute fraction</button>
+                <div id="convert-result">fraction will appear here</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-layer" id="explanation-layer">
+        <div class="page-inner">
+            <button class="back-btn" onclick="handleBack()"><span class="back-arrow">←</span> menu</button>
+            <div class="card explanation-box">
+                <h2>How the fraction is built</h2>
+                <p>Any expression containing <strong>polynomial terms</strong> (like x²) and <strong>exponential terms</strong> (like 3ˣ) is converted into a single exact fraction.</p>
+                <ul>
+                    <li><strong>Polynomials</strong> are expressed using <em>Pascal triangle rows</em>:</li>
+                    <ul>
+                        <li>row 1 (all ones) → 1/(B‑1)</li>
+                        <li>row 2 (1,2,3,…) → B/(B‑1)²</li>
+                        <li>row 3 (1,3,6,…) → B²/(B‑1)³</li>
+                        <li>… and so on (row r → B<sup>r‑1</sup>/(B‑1)<sup>r</sup>)</li>
+                    </ul>
+                    <li><strong>Exponentials</strong> nˣ contribute n/(B‑n).</li>
+                </ul>
+                <p>All terms are combined with their integer coefficients and simplified to an exact fraction using unlimited‑precision arithmetic (<code>BigInt</code>).</p>
+                <p>For more details, see our research paper.</p>
+                <hr>
+                <p><em>Note:</em> The parser accepts only integer constants, <code>x</code>, <code>+</code>, <code>-</code>, <code>*</code> (only constant × term), and <code>^</code> either as <code>x^k</code> or <code>n^x</code>.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-layer" id="credits-layer">
+        <div class="page-inner">
+            <button class="back-btn" onclick="handleBack()"><span class="back-arrow">←</span> menu</button>
+            <div class="credits-box" contenteditable="true" spellcheck="false">
+• concept & code: authors of the math project
+• fonts: Outfit / DM Mono
+• math engine: math.js
+• background: CSS checkerboard
+made for a math project about converting expressions to fractions, to easily express them.
+
+
+</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /* ── dark mode ── */
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+    }
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+        if (e.matches) { document.documentElement.classList.add('dark'); }
+        else { document.documentElement.classList.remove('dark'); }
+    });
+
+    /* ── typewriter (restartable) ── */
+    var typewriterText = 'Expression\u2011decimal converter';
+    var typewriterEl = document.getElementById('typewriter-text');
+    var typewriterTimer = null;
+
+    function startTypewriter() {
+        if (typewriterTimer) { clearTimeout(typewriterTimer); typewriterTimer = null; }
+        typewriterEl.textContent = '';
+        var i = 0;
+        function step() {
+            if (i <= typewriterText.length) {
+                typewriterEl.textContent = typewriterText.slice(0, i);
+                i++;
+                typewriterTimer = setTimeout(step, 45);
+            } else {
+                typewriterTimer = null;
+            }
+        }
+        typewriterTimer = setTimeout(step, 200);
+    }
+
+    function clearTypewriter() {
+        if (typewriterTimer) { clearTimeout(typewriterTimer); typewriterTimer = null; }
+        typewriterEl.textContent = '';
+    }
+
+    /* ── elements ── */
+    var currentPage = null;
+    var transitioning = false;
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.menu-btn'));
+    var menuLayer = document.getElementById('menu-layer');
+    var menuRight = document.getElementById('menu-right');
+
+    /* ── initial entrance ── */
+    startTypewriter();
+    setTimeout(function() {
+        buttons.forEach(function(btn, idx) {
+            btn.classList.add('enter');
+            btn.style.animationDelay = (0.05 + idx * 0.1) + 's';
+        });
+    }, 50);
+
+    /* ── helper: clean all animation classes from a button ── */
+    function resetBtn(btn) {
+        btn.classList.remove('enter', 'exit', 'chosen-exit', 'multi-flash');
+        btn.style.animationDelay = '';
+        btn.style.transform = '';
+        btn.style.opacity = '';
+    }
+
+    /* ══════════ MENU CLICK ══════════
+       1. Non-chosen buttons do a staggered reverse-exit (bottom-up)
+       2. Typewriter slides out to the left
+       3. Chosen button stays, multi-flashing for ~1s
+       4. After 1s chosen button slides out, then page appears
+    */
+    function handleMenuClick(chosenBtn, pageId) {
+        if (transitioning) return;
+        transitioning = true;
+
+        var chosenIdx = buttons.indexOf(chosenBtn);
+
+        /* 1 — non-chosen buttons: staggered exit, furthest-from-chosen first */
+        var others = [];
+        buttons.forEach(function(btn, idx) {
+            if (btn !== chosenBtn) others.push({ btn: btn, dist: Math.abs(idx - chosenIdx) });
+        });
+        others.sort(function(a, b) { return b.dist - a.dist; });
+
+        others.forEach(function(item, i) {
+            item.btn.classList.remove('enter');
+            void item.btn.offsetWidth;
+            item.btn.style.animationDelay = (i * 0.08) + 's';
+            item.btn.classList.add('exit');
+        });
+
+        /* 2 — typewriter slides left */
+        clearTypewriter();
+        menuRight.classList.add('exit-left');
+
+        /* 3 — chosen button: multi-flash for 1s */
+        chosenBtn.classList.add('multi-flash');
+
+        /* 4 — after 1s, chosen button exits then show page */
+        setTimeout(function() {
+            chosenBtn.classList.remove('enter', 'multi-flash');
+            void chosenBtn.offsetWidth;
+            chosenBtn.classList.add('chosen-exit');
+
+            setTimeout(function() {
+                menuLayer.style.display = 'none';
+                showPage(pageId);
+                transitioning = false;
+            }, 420);
+        }, 500);
+    }
+
+    function showPage(pageId) {
+        currentPage = pageId;
+        var layer = document.getElementById(pageId + '-layer');
+        layer.classList.remove('exiting');
+        layer.classList.add('active');
+    }
+
+    /* ══════════ BACK ══════════
+       1. Page slides to the right wall
+       2. Menu reappears, buttons pop in from left (staggered), typewriter restarts
+    */
+    function handleBack() {
+        if (transitioning || !currentPage) return;
+        transitioning = true;
+
+        var layer = document.getElementById(currentPage + '-layer');
+
+        /* 1 — page exits right */
+        layer.classList.remove('active');
+        layer.classList.add('exiting');
+
+        /* 2 — after exit, restore menu */
+        setTimeout(function() {
+            layer.classList.remove('exiting');
+            /* reset page-inner so it can animate again next time */
+            var inner = layer.querySelector('.page-inner');
+            if (inner) {
+                inner.style.opacity = '0';
+                inner.style.transform = 'translateX(60px)';
+                void inner.offsetWidth;
+                inner.style.opacity = '';
+                inner.style.transform = '';
+            }
+            currentPage = null;
+
+            /* prepare buttons off-screen */
+            buttons.forEach(function(btn) {
+                resetBtn(btn);
+                void btn.offsetWidth;
+                btn.style.transform = 'translateX(-110%)';
+                btn.style.opacity = '0';
+            });
+
+            /* show menu & remove typewriter exit class */
+            menuLayer.style.display = '';
+            menuRight.classList.remove('exit-left');
+
+            /* staggered entrance from left */
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    buttons.forEach(function(btn, idx) {
+                        btn.style.transform = '';
+                        btn.style.opacity = '';
+                        btn.classList.add('enter');
+                        btn.style.animationDelay = (0.05 + idx * 0.1) + 's';
+                    });
+
+                    /* restart typewriter */
+                    startTypewriter();
+
+                    transitioning = false;
+                });
+            });
+        }, 450);
+    }
+
+    /* ── BigInt utilities ── */
+    function gcd(a, b) {
+        a = a < 0n ? -a : a;
+        b = b < 0n ? -b : b;
+        while (b !== 0n) { var t = a % b; a = b; b = t; }
+        return a;
+    }
+
+    function addFraction(num1, den1, num2, den2) {
+        var num = num1 * den2 + num2 * den1;
+        var den = den1 * den2;
+        var g = gcd(num, den);
+        return [num / g, den / g];
+    }
+
+    function binom(n, k) {
+        if (k < 0 || k > n) return 0n;
+        k = Math.min(k, n - k);
+        var result = 1n;
+        for (var i = 1; i <= k; i++) {
+            result = result * BigInt(n - k + i) / BigInt(i);
+        }
+        return result;
+    }
+
+    /* ── BigInt long division → decimal string (12 places) ── */
+    function bigintToDecimal(num, den, places) {
+        if (den === 0n) return 'undefined';
+        var negative = false;
+        if (num < 0n && den > 0n || num > 0n && den < 0n) negative = true;
+        if (num < 0n) num = -num;
+        if (den < 0n) den = -den;
+
+        var intPart = num / den;
+        var rem = num % den;
+        var decDigits = '';
+        for (var i = 0; i < places; i++) {
+            rem *= 10n;
+            decDigits += (rem / den).toString();
+            rem = rem % den;
+        }
+        var result = (negative ? '-' : '') + intPart.toString();
+        if (places > 0) result += '.' + decDigits;
+        if (rem !== 0n) result += '\u2026'; /* ellipsis if not exact */
+        return result;
+    }
+
+    /* ── expression parser ── */
+    function createEmptyTerm() { return { poly: new Map(), exp: new Map() }; }
+
+    function addTerms(a, b) {
+        var res = { poly: new Map(a.poly), exp: new Map(a.exp) };
+        for (var entry of b.poly) { res.poly.set(entry[0], (res.poly.get(entry[0]) || 0n) + entry[1]); }
+        for (var entry2 of b.exp) { res.exp.set(entry2[0], (res.exp.get(entry2[0]) || 0n) + entry2[1]); }
+        return res;
+    }
+
+    function scaleTerm(term, factor) {
+        if (factor === 0n) return createEmptyTerm();
+        var res = { poly: new Map(), exp: new Map() };
+        for (var entry of term.poly) { res.poly.set(entry[0], entry[1] * factor); }
+        for (var entry2 of term.exp) { res.exp.set(entry2[0], entry2[1] * factor); }
+        return res;
+    }
+
+    function negateTerm(term) { return scaleTerm(term, -1n); }
+
+    function parseNode(node) {
+        if (node.type === 'ConstantNode') {
+            var val = Number(node.value);
+            if (!Number.isInteger(val)) throw new Error('Constant ' + val + ' is not an integer');
+            var term = createEmptyTerm();
+            term.poly.set(0, BigInt(val));
+            return term;
+        }
+        if (node.type === 'SymbolNode') {
+            if (node.name !== 'x') throw new Error('Unknown symbol: ' + node.name);
+            var term2 = createEmptyTerm();
+            term2.poly.set(1, 1n);
+            return term2;
+        }
+        if (node.type === 'ParenthesisNode') { return parseNode(node.content); }
+        if (node.type === 'OperatorNode') {
+            if (node.op === '+') return addTerms(parseNode(node.args[0]), parseNode(node.args[1]));
+            if (node.op === '-') {
+                if (node.args.length === 1) return negateTerm(parseNode(node.args[0]));
+                return addTerms(parseNode(node.args[0]), negateTerm(parseNode(node.args[1])));
+            }
+            if (node.op === '*') {
+                var left = node.args[0], right = node.args[1];
+                if (left.type === 'ConstantNode' && right.type === 'ConstantNode') {
+                    var v = BigInt(left.value) * BigInt(right.value);
+                    var t = createEmptyTerm(); t.poly.set(0, v); return t;
+                }
+                if (left.type === 'ConstantNode') return scaleTerm(parseNode(right), BigInt(left.value));
+                if (right.type === 'ConstantNode') return scaleTerm(parseNode(left), BigInt(right.value));
+                throw new Error('Multiplication of non-constant terms is not supported');
+            }
+            if (node.op === '^') {
+                var base = node.args[0], exp2 = node.args[1];
+                if (base.type === 'SymbolNode' && base.name === 'x' && exp2.type === 'ConstantNode') {
+                    var exponent = Number(exp2.value);
+                    if (!Number.isInteger(exponent) || exponent < 0) throw new Error('Exponent must be non-negative integer');
+                    var t2 = createEmptyTerm(); t2.poly.set(exponent, 1n); return t2;
+                }
+                if (base.type === 'ConstantNode' && exp2.type === 'SymbolNode' && exp2.name === 'x') {
+                    var bv = Number(base.value);
+                    if (!Number.isInteger(bv)) throw new Error('Base must be integer');
+                    var t3 = createEmptyTerm(); t3.exp.set(BigInt(bv), 1n); return t3;
+                }
+                throw new Error('invalid expression :(');
+            }
+            throw new Error('Unsupported operator: ' + node.op);
+        }
+        throw new Error('Unsupported node type: ' + node.type);
+    }
+
+    function polyToRowCoeffs(polyMap) {
+        if (polyMap.size === 0) return [];
+        var degree = -1;
+        for (var exp of polyMap.keys()) { if (exp > degree) degree = exp; }
+        if (degree < 0) return [];
+        var values = [];
+        for (var x = 1; x <= degree + 1; x++) {
+            var val = 0n;
+            for (var entry of polyMap) { val += entry[1] * (BigInt(x) ** BigInt(entry[0])); }
+            values.push(val);
+        }
+        var diffs = values.slice();
+        var firsts = [diffs[0]];
+        while (diffs.length > 1) {
+            var next = [];
+            for (var i = 0; i < diffs.length - 1; i++) { next.push(diffs[i+1] - diffs[i]); }
+            diffs = next;
+            firsts.push(diffs[0]);
+        }
+        var a = new Array(degree + 2).fill(0n);
+        for (var k = degree; k >= 0; k--) {
+            var sum = 0n;
+            for (var r = k + 2; r <= degree + 1; r++) { sum += a[r] * binom(r - 1, k); }
+            a[k + 1] = firsts[k] - sum;
+        }
+        return a.slice(1);
+    }
+
+    /* ── compute ── */
+    function compute() {
+        var exprStr = document.getElementById('convert-expr').value;
+        var Braw = document.getElementById('convert-B').value;
+        var resultEl = document.getElementById('convert-result');
+        var B;
+        try {
+            B = BigInt(Braw);
+            if (B <= 1n) throw new Error('B must be > 1');
+        } catch (e) {
+            resultEl.innerHTML = '<span class="error">B must be an integer &gt; 1</span>';
+            return;
+        }
+        try {
+            var node = math.parse(exprStr);
+            var term = parseNode(node);
+            var polyMap = term.poly, expMap = term.exp;
+            if (B === 1n) throw new Error('B-1 = 0, division by zero');
+            for (var entry of expMap) {
+                if (entry[0] === B) throw new Error('B equals base ' + entry[0] + ' \u2192 denominator zero');
+            }
+            var rowCoeffs = polyToRowCoeffs(polyMap);
+            var num = 0n, den = 1n, Bminus1 = B - 1n;
+            for (var r = 1; r <= rowCoeffs.length; r++) {
+                var coeff = rowCoeffs[r-1];
+                if (coeff === 0n) continue;
+                var tN = coeff * (B ** BigInt(r-1));
+                var tD = Bminus1 ** BigInt(r);
+                var res = addFraction(num, den, tN, tD); num = res[0]; den = res[1];
+            }
+            for (var entry2 of expMap) {
+                if (entry2[1] === 0n) continue;
+                var eN = entry2[1] * entry2[0];
+                var eD = B - entry2[0];
+                var res2 = addFraction(num, den, eN, eD); num = res2[0]; den = res2[1];
+            }
+            var g = gcd(num, den); num /= g; den /= g;
+
+            /* fraction string */
+            var fracStr = den === 1n ? num.toString() : num.toString() + ' / ' + den.toString();
+
+            /* decimal approximation (12 places via BigInt long division) */
+            var decStr = bigintToDecimal(num, den, 120);
+
+            resultEl.innerHTML =
+                '<strong>fraction:</strong> ' + fracStr +
+                '<span class="decimal-line"><strong>decimal:</strong> ' + decStr + '</span>';
+        } catch (e) {
+            resultEl.innerHTML = '<span class="error">error: ' + e.message + '</span>';
+        }
+    }
+
+    document.getElementById('convert-result').innerHTML = 'fraction will appear here';
+    document.getElementById('convert-expr').addEventListener('keydown', function(e) { if (e.key === 'Enter') compute(); });
+    document.getElementById('convert-B').addEventListener('keydown', function(e) { if (e.key === 'Enter') compute(); });
+</script>
+</body>
+</html>
+
